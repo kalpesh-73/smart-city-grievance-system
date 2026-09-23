@@ -1,0 +1,57 @@
+# ===== Java / Maven =====
+target/
+*.class
+*.jar
+*.war
+!.mvn/wrapper/maven-wrapper.jar
+.mvn/timing.properties
+
+# ===== Node / React =====
+node_modules/
+dist/
+build/
+.vite/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ===== IDE =====
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+*.swp
+
+# ===== OS =====
+.DS_Store
+Thumbs.db
+
+# ===== H2 Database =====
+data/
+*.db
+*.mv.db
+*.trace.db
+
+# ===== Logs =====
+*.log
+logs/
+
+# ===== Environment =====
+.env
+.env.local
+application-local.properties
+application-secret.properties
+
+# ===== AI Service =====
+__pycache__/
+*.pyc
+venv/
+.venv/
+*.h5
+*.pt
+*.pth
+
+# ===== Misc =====
+*.bak
+*.tmp
