@@ -1,22 +1,26 @@
 package com.smartcity.grievance_backend.service;
-import org.springframework.transaction.annotation.Transactional;
+
 import com.smartcity.grievance_backend.dto.ComplaintRequest;
 import com.smartcity.grievance_backend.dto.ComplaintResponse;
+import com.smartcity.grievance_backend.dto.StatusHistoryResponse;
 import com.smartcity.grievance_backend.entity.Complaint;
+import com.smartcity.grievance_backend.entity.ComplaintStatusHistory;
 import com.smartcity.grievance_backend.entity.Priority;
+import com.smartcity.grievance_backend.entity.Status;
 import com.smartcity.grievance_backend.entity.User;
 import com.smartcity.grievance_backend.repository.ComplaintRepository;
+import com.smartcity.grievance_backend.repository.ComplaintStatusHistoryRepository;
 import com.smartcity.grievance_backend.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
 
-@Transactional
-
 @Service
+@Transactional
 public class ComplaintService {
 
     @Autowired
@@ -24,6 +28,11 @@ public class ComplaintService {
 
     @Autowired
     private UserRepository userRepository;
+
+    @Autowired
+    private ComplaintStatusHistoryRepository historyRepository;
+
+    // ---------------- CREATE ----------------
 
     public ComplaintResponse createComplaint(ComplaintRequest req) {
         User citizen = userRepository.findById(req.getCitizenId())
@@ -37,20 +46,30 @@ public class ComplaintService {
         complaint.setLongitude(req.getLongitude());
         complaint.setAddress(req.getAddress());
         complaint.setWard(req.getWard());
-        complaint.setCategory(req.getCategory() != null ? req.getCategory() : com.smartcity.grievance_backend.entity.Category.OTHER);
+        complaint.setCategory(req.getCategory() != null
+                ? req.getCategory()
+                : com.smartcity.grievance_backend.entity.Category.OTHER);
         complaint.setPriority(req.getPriority() != null ? req.getPriority() : Priority.MEDIUM);
         complaint.setCitizen(citizen);
-
-        // Set SLA deadline based on priority
         complaint.setSlaDeadline(calculateSla(complaint.getPriority()));
-
-        // Simple rule-based department routing
         complaint.setDepartment(routeDepartment(complaint.getCategory()));
 
         Complaint saved = complaintRepository.save(complaint);
+
+        // Log initial status
+        ComplaintStatusHistory history = new ComplaintStatusHistory();
+        history.setComplaint(saved);
+        history.setStatus(saved.getStatus());
+        history.setRemarks("Complaint submitted by citizen");
+        history.setUpdatedBy(citizen);
+        historyRepository.save(history);
+
         return toResponse(saved);
     }
 
+    // ---------------- READ ----------------
+
+    @Transactional(readOnly = true)
     public List<ComplaintResponse> getAllComplaints() {
         return complaintRepository.findAll()
                 .stream()
@@ -58,12 +77,14 @@ public class ComplaintService {
                 .collect(Collectors.toList());
     }
 
+    @Transactional(readOnly = true)
     public ComplaintResponse getComplaintById(Long id) {
         Complaint c = complaintRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Complaint not found"));
         return toResponse(c);
     }
 
+    @Transactional(readOnly = true)
     public List<ComplaintResponse> getComplaintsByCitizen(Long citizenId) {
         return complaintRepository.findByCitizenId(citizenId)
                 .stream()
@@ -71,6 +92,7 @@ public class ComplaintService {
                 .collect(Collectors.toList());
     }
 
+    @Transactional(readOnly = true)
     public List<ComplaintResponse> getComplaintsByDepartment(String department) {
         return complaintRepository.findByDepartment(department)
                 .stream()
@@ -78,6 +100,7 @@ public class ComplaintService {
                 .collect(Collectors.toList());
     }
 
+    @Transactional(readOnly = true)
     public List<ComplaintResponse> getComplaintsByWorker(Long workerId) {
         return complaintRepository.findByAssignedWorkerId(workerId)
                 .stream()
@@ -85,11 +108,23 @@ public class ComplaintService {
                 .collect(Collectors.toList());
     }
 
-    public ComplaintResponse updateStatus(Long id, String status, Long workerId) {
+    @Transactional(readOnly = true)
+    public List<StatusHistoryResponse> getStatusHistory(Long complaintId) {
+        return historyRepository.findByComplaintIdOrdered(complaintId)
+                .stream()
+                .map(this::toHistoryResponse)
+                .collect(Collectors.toList());
+    }
+
+    // ---------------- UPDATE ----------------
+
+    public ComplaintResponse updateStatus(Long id, String status, Long workerId,
+                                          String remarks, Long updatedById) {
         Complaint c = complaintRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Complaint not found"));
 
-        c.setStatus(com.smartcity.grievance_backend.entity.Status.valueOf(status.toUpperCase()));
+        Status newStatus = Status.valueOf(status.toUpperCase());
+        c.setStatus(newStatus);
 
         if (workerId != null) {
             User worker = userRepository.findById(workerId)
@@ -98,10 +133,22 @@ public class ComplaintService {
         }
 
         Complaint saved = complaintRepository.save(c);
+
+        // Log status change
+        ComplaintStatusHistory history = new ComplaintStatusHistory();
+        history.setComplaint(saved);
+        history.setStatus(newStatus);
+        history.setRemarks(remarks != null ? remarks : "Status updated to " + newStatus);
+        if (updatedById != null) {
+            User updater = userRepository.findById(updatedById).orElse(null);
+            history.setUpdatedBy(updater);
+        }
+        historyRepository.save(history);
+
         return toResponse(saved);
     }
 
-    // ---- helpers ----
+    // ---------------- HELPERS ----------------
 
     private LocalDateTime calculateSla(Priority priority) {
         LocalDateTime now = LocalDateTime.now();
@@ -150,6 +197,19 @@ public class ComplaintService {
         }
         if (c.getAssignedWorker() != null) {
             r.setAssignedWorkerId(c.getAssignedWorker().getId());
+        }
+        return r;
+    }
+
+    private StatusHistoryResponse toHistoryResponse(ComplaintStatusHistory h) {
+        StatusHistoryResponse r = new StatusHistoryResponse();
+        r.setId(h.getId());
+        r.setStatus(h.getStatus());
+        r.setRemarks(h.getRemarks());
+        r.setCreatedAt(h.getCreatedAt());
+        if (h.getUpdatedBy() != null) {
+            r.setUpdatedById(h.getUpdatedBy().getId());
+            r.setUpdatedByName(h.getUpdatedBy().getName());
         }
         return r;
     }

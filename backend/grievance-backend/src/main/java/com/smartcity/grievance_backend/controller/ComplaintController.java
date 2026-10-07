@@ -1,5 +1,5 @@
 package com.smartcity.grievance_backend.controller;
-
+import com.smartcity.grievance_backend.dto.StatusHistoryResponse;
 import com.smartcity.grievance_backend.dto.ComplaintRequest;
 import com.smartcity.grievance_backend.dto.ComplaintResponse;
 import com.smartcity.grievance_backend.service.ComplaintService;
@@ -55,6 +55,18 @@ public class ComplaintController {
         Long workerId = body.get("workerId") != null
                 ? Long.valueOf(body.get("workerId").toString())
                 : null;
-        return ResponseEntity.ok(complaintService.updateStatus(id, status, workerId));
+        String remarks = (String) body.get("remarks");
+        Long updatedById = body.get("updatedById") != null
+                ? Long.valueOf(body.get("updatedById").toString())
+                : null;
+
+        return ResponseEntity.ok(
+                complaintService.updateStatus(id, status, workerId, remarks, updatedById)
+        );
+    }
+
+    @GetMapping("/{id}/history")
+    public List<StatusHistoryResponse> getHistory(@PathVariable Long id) {
+        return complaintService.getStatusHistory(id);
     }
 }
